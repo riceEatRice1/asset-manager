@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+  <title>资产管家</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta name="theme-color" content="#007AFF">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="资产管家">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 导航栏 -->
+    <header id="nav-bar">
+      <button id="nav-back" class="nav-back hidden" aria-label="返回">‹</button>
+      <h1 id="nav-title">资产管家</h1>
+      <div id="nav-right" class="nav-right"></div>
+    </header>
+
+    <!-- 内容区域 -->
+    <main id="app-content"></main>
+
+    <!-- 底部标签栏 -->
+    <nav id="tab-bar">
+      <button class="tab-item active" data-route="dashboard">
+        <span class="tab-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+            <rect x="12" y="12" width="40" height="28" rx="4" stroke="currentColor" stroke-width="3"/>
+            <line x1="12" y1="20" x2="52" y2="20" stroke="currentColor" stroke-width="2"/>
+            <rect x="18" y="28" width="8" height="3" fill="currentColor"/>
+            <rect x="18" y="34" width="12" height="3" fill="currentColor"/>
+            <circle cx="38" cy="42" r="8" stroke="currentColor" stroke-width="3"/>
+            <polyline points="34,42 37,45 42,39" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">总览</span>
+      </button>
+      <button class="tab-item" data-route="statistics">
+        <span class="tab-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+            <rect x="10" y="14" width="20" height="38" rx="3" stroke="currentColor" stroke-width="3" fill="none"/>
+            <rect x="34" y="14" width="20" height="38" rx="3" stroke="currentColor" stroke-width="3" fill="none"/>
+            <rect x="16" y="22" width="8" height="3" fill="currentColor"/>
+            <rect x="16" y="28" width="8" height="3" fill="currentColor"/>
+            <rect x="16" y="34" width="5" height="3" fill="currentColor"/>
+            <polyline points="40,28 40,42 44,42 48,28 48,42" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">统计</span>
+      </button>
+    </nav>
+
+    <!-- Toast 提示 -->
+    <div id="toast-container"></div>
+
+    <!-- 模态框遮罩 -->
+    <div id="modal-overlay" class="hidden">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- CDN Dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.7/dist/dexie.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <!-- App Entry -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
