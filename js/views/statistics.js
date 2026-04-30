@@ -6,6 +6,8 @@ import { navigate } from '../router.js';
 
 let charts = [];
 let currentRange = '30d';
+let surplusYearFilter = String(new Date().getFullYear()); // Default to current year
+let surplusAllData = []; // Store all surplus data for filtering
 
 export const title = '统计';
 
@@ -15,6 +17,7 @@ export async function render() {
 
 export async function mount() {
   currentRange = '30d';
+  surplusYearFilter = 'all'; // Reset to 'all' when entering statistics page
   await refreshView();
 }
 
@@ -70,23 +73,26 @@ async function refreshView() {
 
   container.innerHTML = `
     <div class="segment-control" id="range-selector">
-      <button class="segment-item ${currentRange === '7d' ? 'active' : ''}" data-range="7d">7天</button>
-      <button class="segment-item ${currentRange === '30d' ? 'active' : ''}" data-range="30d">30天</button>
-      <button class="segment-item ${currentRange === '1y' ? 'active' : ''}" data-range="1y">1年</button>
+      <button class="segment-item ${currentRange === '30d' ? 'active' : ''}" data-range="30d">近30天</button>
+      <button class="segment-item ${currentRange === '1y' ? 'active' : ''}" data-range="1y">近1年</button>
       <button class="segment-item ${currentRange === 'all' ? 'active' : ''}" data-range="all">全部</button>
     </div>
 
     <div id="stats-summary"></div>
 
     <div class="chart-container">
-      <div class="chart-title">总资产走势</div>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-sm);">
+        <div class="chart-title" style="margin: 0;">总资产走势</div>
+        <select id="trend-year-filter" class="form-select" style="padding: 6px 12px; border: 1px solid var(--color-separator); border-radius: 6px; font-size: 13px; display: none;">
+        </select>
+      </div>
       <div class="chart-wrapper">
         <canvas id="trend-chart"></canvas>
       </div>
     </div>
 
     <div class="chart-container" id="surplus-section" style="display:none;">
-      <div class="chart-title">月度盈余</div>
+      <div class="chart-title" id="surplus-chart-title">月度盈余</div>
       <div class="chart-wrapper">
         <canvas id="surplus-chart"></canvas>
       </div>
@@ -176,42 +182,147 @@ async function renderCharts(firstDate) {
 
   // For 1y range, show monthly data
   if (currentRange === '1y') {
-    const year = new Date().getFullYear();
-    const currentMonth = new Date().getMonth(); // 0-11
-    console.log('1年视图 - 当前年份:', year, '当前月份:', currentMonth + 1);
-    const monthlyData = [];
+    const todayDate = new Date();
+    const firstRecordDate = new Date(firstDate + 'T00:00:00');
     
-    // Show from January to current month
-    for (let m = 0; m <= currentMonth; m++) {
-      const monthStart = `${year}-${String(m + 1).padStart(2, '0')}-01`;
-      const nextMonth = m === 11
-        ? `${year + 1}-01-01`
-        : `${year}-${String(m + 2).padStart(2, '0')}-01`;
+    // Start from 12 months ago or first record, whichever is later
+    let startYear, startMonth;
+    const twelveMonthsAgo = new Date(todayDate.getFullYear(), todayDate.getMonth() - 11, 1);
+    if (twelveMonthsAgo > firstRecordDate) {
+      startYear = twelveMonthsAgo.getFullYear();
+      startMonth = twelveMonthsAgo.getMonth();
+    } else {
+      startYear = firstRecordDate.getFullYear();
+      startMonth = firstRecordDate.getMonth();
+    }
+    
+    const monthlyData = [];
+    let currentYear = startYear;
+    let currentMonth = startMonth;
+    
+    while (true) {
+      const monthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+      const nextMonth = currentMonth === 11
+        ? `${currentYear + 1}-01-01`
+        : `${currentYear}-${String(currentMonth + 2).padStart(2, '0')}-01`;
       const lastDay = new Date(new Date(nextMonth).getTime() - 86400000)
         .toISOString().slice(0, 10);
-
+      
+      // Stop if we've reached current month
+      if (monthStart > today) break;
+      
       const accounts = await getAllActiveAccounts();
       let monthTotal = 0;
-
+      
       for (const account of accounts) {
         const endBal = await getLatestBalance(account.id, lastDay);
         monthTotal += endBal || 0;
       }
-
-      console.log(`${m + 1}月 - 最后日期:`, lastDay, '总额:', monthTotal);
+      
       monthlyData.push({
         date: lastDay,
         total: monthTotal,
-        label: `${m + 1}月`
+        year: currentYear,
+        month: currentMonth,
+        label: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
       });
+      
+      // Move to next month
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
     }
+    
+    // Apply year filter if spans years
+    const availableYears = [...new Set(monthlyData.map(d => d.year))];
+    const spansYears = availableYears.length > 1;
+    
+    const filteredData = spansYears && surplusYearFilter !== 'all'
+      ? monthlyData.filter(d => d.year === parseInt(surplusYearFilter))
+      : monthlyData;
+    
+    const filteredSpansYears = spansYears && surplusYearFilter === 'all';
+    
+    trendLabels = filteredData.map(d => 
+      filteredSpansYears ? d.label : `${d.month + 1}月`
+    );
+    trendData = filteredData.map(d => d.total / 100);
+    dailyTotals = filteredData.map(d => ({ date: d.date, total: d.total }));
+  } else if (currentRange === 'all') {
+    // For 'all' range, check if data spans multiple years
+    const firstRecordYear = parseInt(firstDate.split('-')[0]);
+    const currentYear = new Date().getFullYear();
+    
+    if (currentYear > firstRecordYear) {
+      // Data spans multiple years, show yearly data
+      const yearlyData = [];
+      
+      for (let year = firstRecordYear; year <= currentYear; year++) {
+        const yearStart = `${year}-01-01`;
+        const yearEnd = year === currentYear 
+          ? today 
+          : `${year}-12-31`;
+        
+        // Skip if yearEnd is before firstDate
+        if (yearEnd < firstDate) continue;
+        
+        const accounts = await getAllActiveAccounts();
+        let yearTotal = 0;
+        
+        for (const account of accounts) {
+          const endBal = await getLatestBalance(account.id, yearEnd);
+          yearTotal += endBal || 0;
+        }
+        
+        yearlyData.push({
+          date: yearEnd,
+          total: yearTotal,
+          label: `${year}年`
+        });
+      }
+      
+      trendLabels = yearlyData.map(d => d.label);
+      trendData = yearlyData.map(d => d.total / 100);
+      dailyTotals = yearlyData.map(d => ({ date: d.date, total: d.total }));
+    } else {
+      // Single year, show monthly data like 1y
+      const monthlyData = [];
+      const firstMonth = firstDate.split('-')[1] ? parseInt(firstDate.split('-')[1]) - 1 : 0;
+      
+      for (let m = firstMonth; m <= 11; m++) {
+        const monthStart = `${currentYear}-${String(m + 1).padStart(2, '0')}-01`;
+        const nextMonth = m === 11
+          ? `${currentYear + 1}-01-01`
+          : `${currentYear}-${String(m + 2).padStart(2, '0')}-01`;
+        const lastDay = new Date(new Date(nextMonth).getTime() - 86400000)
+          .toISOString().slice(0, 10);
+        
+        if (monthStart < firstDate) continue;
+        if (lastDay > today) break;
 
-    console.log('月度数据:', monthlyData);
-    trendLabels = monthlyData.map(d => d.label);
-    trendData = monthlyData.map(d => d.total / 100);
-    dailyTotals = monthlyData.map(d => ({ date: d.date, total: d.total }));
+        const accounts = await getAllActiveAccounts();
+        let monthTotal = 0;
+
+        for (const account of accounts) {
+          const endBal = await getLatestBalance(account.id, lastDay);
+          monthTotal += endBal || 0;
+        }
+
+        monthlyData.push({
+          date: lastDay,
+          total: monthTotal,
+          label: `${m + 1}月`
+        });
+      }
+
+      trendLabels = monthlyData.map(d => d.label);
+      trendData = monthlyData.map(d => d.total / 100);
+      dailyTotals = monthlyData.map(d => ({ date: d.date, total: d.total }));
+    }
   } else {
-    // For other ranges, show daily data
+    // For other ranges (30d), show daily data
     dailyTotals = await getDailyTotals(startDate, today);
     
     // Sample data if too many points
@@ -231,28 +342,181 @@ async function renderCharts(firstDate) {
   // 2. Summary stats
   renderSummary(dailyTotals);
 
-  // 3. Monthly surplus (only for 1y and all)
+  // 3. Monthly/Yearly surplus (only for 1y and all)
   if (currentRange === '1y' || currentRange === 'all') {
     document.getElementById('surplus-section').style.display = '';
-    const year = new Date().getFullYear();
-    const monthly = await getMonthlyAggregation(year);
-    const surplusLabels = monthly.map(m => m.label);
-    const surplusData = monthly.map(m => m.surplus / 100);
+    
+    // Calculate monthly surplus starting from first record date
+    const surplusData = [];
+    const todayDate = new Date();
+    const firstRecordDate = new Date(firstDate + 'T00:00:00');
+    
+    // Start from the month of first record
+    let startYear = firstRecordDate.getFullYear();
+    let startMonth = firstRecordDate.getMonth(); // 0-11
+    
+    // For 1y range, start from 12 months ago or first record, whichever is later
+    if (currentRange === '1y') {
+      const twelveMonthsAgo = new Date(todayDate.getFullYear(), todayDate.getMonth() - 11, 1);
+      if (twelveMonthsAgo > firstRecordDate) {
+        startYear = twelveMonthsAgo.getFullYear();
+        startMonth = twelveMonthsAgo.getMonth();
+      }
+    }
+    
+    // Generate data from start month to current month
+    let currentYear = startYear;
+    let currentMonth = startMonth;
+    const availableYears = new Set();
+    
+    while (true) {
+      const monthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+      const nextMonth = currentMonth === 11
+        ? `${currentYear + 1}-01-01`
+        : `${currentYear}-${String(currentMonth + 2).padStart(2, '0')}-01`;
+      const lastDay = new Date(new Date(nextMonth).getTime() - 86400000)
+        .toISOString().slice(0, 10);
+      
+      // Stop if we've reached current month
+      if (monthStart > today) break;
+      
+      const accounts = await getAllActiveAccounts();
+      let startTotal = 0;
+      let endTotal = 0;
+      
+      for (const account of accounts) {
+        const startBal = await getLatestBalance(account.id, monthStart);
+        const endBal = await getLatestBalance(account.id, lastDay);
+        startTotal += startBal || 0;
+        endTotal += endBal || 0;
+      }
+      
+      availableYears.add(currentYear);
+      
+      surplusData.push({
+        year: currentYear,
+        month: currentMonth,
+        label: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+        surplus: endTotal - startTotal
+      });
+      
+      // Move to next month
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+    }
+    
+    // Store all data
+    surplusAllData = surplusData;
+    
+    // Check if spans multiple years
+    const yearsArray = Array.from(availableYears).sort();
+    const spansYears = yearsArray.length > 1;
+    
+    // Update year filter
+    const yearFilter = document.getElementById('trend-year-filter');
+    if (yearFilter) {
+      if (spansYears) {
+        yearFilter.style.display = 'block';
+        // Build options with years in descending order
+        let optionsHtml = '<option value="all">全部</option>';
+        yearsArray.reverse().forEach(year => {
+          const selected = surplusYearFilter === String(year) ? 'selected' : '';
+          optionsHtml += `<option value="${year}" ${selected}>${year}年</option>`;
+        });
+        yearFilter.innerHTML = optionsHtml;
+      } else {
+        yearFilter.style.display = 'none';
+      }
+    }
+    
+    // For 'all' range with 'all' years filter and spans years, show yearly surplus
+    let surplusLabels = [];
+    let surplusValues = [];
+    const surplusTitle = document.getElementById('surplus-chart-title');
+    
+    if (currentRange === 'all' && surplusYearFilter === 'all' && spansYears) {
+      // Update title to "年度盈余"
+      if (surplusTitle) {
+        surplusTitle.textContent = '年度盈余';
+      }
+      
+      // Aggregate by year
+      const yearlySurplus = {};
+      surplusData.forEach(d => {
+        if (!yearlySurplus[d.year]) {
+          yearlySurplus[d.year] = 0;
+        }
+        yearlySurplus[d.year] += d.surplus;
+      });
+      
+      // Sort by year ascending (positive order)
+      const sortedYears = Object.keys(yearlySurplus).sort((a, b) => a - b);
+      surplusLabels = sortedYears.map(year => `${year}年`);
+      surplusValues = sortedYears.map(year => yearlySurplus[year] / 100);
+    } else {
+      // Update title to "月度盈余"
+      if (surplusTitle) {
+        surplusTitle.textContent = '月度盈余';
+      }
+      
+      // Show monthly data
+      const filteredData = surplusYearFilter === 'all' 
+        ? surplusData 
+        : surplusData.filter(d => d.year === parseInt(surplusYearFilter));
+      
+      // Check if filtered data spans years for label format
+      const filteredYears = [...new Set(filteredData.map(d => d.year))];
+      const filteredSpansYears = filteredYears.length > 1;
+      
+      surplusLabels = filteredData.map(d => 
+        filteredSpansYears ? d.label : `${d.month + 1}月`
+      );
+      surplusValues = filteredData.map(d => d.surplus / 100);
+    }
 
     const surplusCanvas = document.getElementById('surplus-chart');
     if (surplusCanvas) {
-      const chart = new Chart(surplusCanvas, createSurplusBarConfig(surplusLabels, surplusData));
+      const chart = new Chart(surplusCanvas, createSurplusBarConfig(surplusLabels, surplusValues));
       charts.push(chart);
     }
   }
 
   // 4. Asset composition
-  const accountData = await getLatestRecordPerAccount();
-  const activeWithBalance = accountData.filter(d => d.balance && d.balance > 0);
+  // Get the end date based on current range and filter
+  let compositionDate = today;
+  
+  if (currentRange === '1y' && surplusYearFilter !== 'all') {
+    // If year filter is applied, use the end of that year or current date
+    const filterYear = parseInt(surplusYearFilter);
+    const currentYear = new Date().getFullYear();
+    compositionDate = filterYear === currentYear ? today : `${filterYear}-12-31`;
+  } else if (currentRange === 'all' && surplusYearFilter !== 'all') {
+    // For 'all' range with year filter
+    const filterYear = parseInt(surplusYearFilter);
+    const currentYear = new Date().getFullYear();
+    compositionDate = filterYear === currentYear ? today : `${filterYear}-12-31`;
+  }
+  
+  // Get account balances at the specific date
+  const accounts = await getAllActiveAccounts();
+  const accountBalances = [];
+  
+  for (const account of accounts) {
+    const balance = await getLatestBalance(account.id, compositionDate);
+    if (balance && balance > 0) {
+      accountBalances.push({
+        account,
+        balance
+      });
+    }
+  }
 
-  if (activeWithBalance.length > 0) {
-    const compLabels = activeWithBalance.map(d => d.account.name);
-    const compData = activeWithBalance.map(d => d.balance / 100);
+  if (accountBalances.length > 0) {
+    const compLabels = accountBalances.map(d => d.account.name);
+    const compData = accountBalances.map(d => d.balance / 100);
     
     // Harmonious blue-tone color palette with subtle variations
     // All colors are blue-based but distinguishable from each other
@@ -273,7 +537,7 @@ async function renderCharts(firstDate) {
     
     // Generate colors based on account name (not type)
     // This ensures each unique account name gets a unique color
-    const compColors = activeWithBalance.map((d, index) => {
+    const compColors = accountBalances.map((d, index) => {
       // Use account name to generate consistent color
       const nameHash = d.account.name.split('').reduce((hash, char) => {
         return char.charCodeAt(0) + ((hash << 5) - hash);
@@ -342,6 +606,21 @@ function bindEvents() {
     const btn = e.target.closest('.segment-item');
     if (!btn) return;
     currentRange = btn.dataset.range;
+    
+    // Set default year filter based on range
+    if (currentRange === 'all') {
+      surplusYearFilter = 'all'; // Default to 'all' for 'all' range
+    } else if (currentRange === '1y') {
+      surplusYearFilter = String(new Date().getFullYear()); // Default to current year for '1y' range
+    }
+    
+    destroyCharts();
+    refreshView();
+  });
+
+  // Bind trend year filter
+  document.getElementById('trend-year-filter')?.addEventListener('change', (e) => {
+    surplusYearFilter = e.target.value;
     destroyCharts();
     refreshView();
   });
@@ -632,4 +911,7 @@ async function clearAllCache() {
 
 export function unmount() {
   destroyCharts();
+  // Reset surplus year filter to current year
+  surplusYearFilter = String(new Date().getFullYear());
+  surplusAllData = [];
 }
