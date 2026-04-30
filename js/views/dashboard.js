@@ -183,6 +183,9 @@ async function refreshView() {
 
     // Re-bind date picker events after DOM rebuild
     bindDatePickerEvents();
+    
+    // Re-bind swipe events after DOM rebuild
+    bindSwipeEvents();
   } finally {
     setTimeout(function() {
       isRefreshing = false;
@@ -233,9 +236,20 @@ function bindEvents() {
 
   bindInstallBanner(container);
 
-  // Swipe to delete
+  // Initial swipe binding
+  bindSwipeEvents();
+}
+
+function bindSwipeEvents() {
+  var container = document.getElementById('dashboard-view');
+  if (!container) return;
+  
   var accountRows = container.querySelectorAll('.account-row');
   accountRows.forEach(function(row) {
+    // Avoid double binding
+    if (row.dataset.swipeBound) return;
+    row.dataset.swipeBound = 'true';
+    
     var startX = 0;
     var currentX = 0;
     var isDragging = false;
@@ -245,8 +259,9 @@ function bindEvents() {
       startX = e.touches[0].clientX;
       isDragging = true;
       
-      // Close other swiped rows
-      accountRows.forEach(function(otherRow) {
+      // Close other swiped rows - get fresh list
+      var currentRows = container.querySelectorAll('.account-row');
+      currentRows.forEach(function(otherRow) {
         if (otherRow !== row && otherRow.classList.contains('swiped')) {
           otherRow.classList.remove('swiped');
         }
