@@ -414,13 +414,22 @@ async function processCSVImport(lines) {
     let updateCount = 0;
     let accountCount = 0;
     const errors = [];
+    const debugDates = [];
 
     for (let i = 1; i < lines.length; i++) {
       const row = lines[i].trim();
       if (!row) continue;
 
-      // Split by comma, handling values that may contain commas
-      const parts = parseCSVLine(row);
+      // Split by comma or tab, handling values that may contain commas
+      let parts;
+      if (row.includes('\t')) {
+        // Tab-separated
+        parts = row.split('\t');
+      } else {
+        // Comma-separated
+        parts = parseCSVLine(row);
+      }
+      
       if (parts.length < 4) {
         errors.push('第 ' + (i + 1) + ' 行格式不正确');
         continue;
@@ -430,6 +439,20 @@ async function processCSVImport(lines) {
       const accountName = parts[1].trim();
       const typeLabel = parts[2].trim();
       const balanceStr = parts[3].trim();
+
+      // Normalize date format: convert YYYY/M/D or YYYY/MM/DD to YYYY-MM-DD
+      let normalizedDate = date;
+      if (date.includes('/')) {
+        const dateParts = date.split('/');
+        if (dateParts.length === 3) {
+          const year = dateParts[0];
+          const month = dateParts[1].padStart(2, '0');
+          const day = dateParts[2].padStart(2, '0');
+          normalizedDate = `${year}-${month}-${day}`;
+        }
+      }
+      
+      debugDates.push({ original: date, normalized: normalizedDate, account: accountName });
 
       // Parse balance: remove ¥ or ￥ (both full-width and half-width) and convert to cents
       const balanceYuan = parseFloat(balanceStr.replace(/[¥￥]/g, '').replace(/,/g, ''));
@@ -467,8 +490,8 @@ async function processCSVImport(lines) {
         accountCount++;
       }
 
-      if (account && date) {
-        await upsertRecord(account.id, date, balanceCents, '');
+      if (account && normalizedDate) {
+        await upsertRecord(account.id, normalizedDate, balanceCents, '');
         importCount++;
       }
     }
@@ -477,6 +500,9 @@ async function processCSVImport(lines) {
     if (accountCount > 0) msg += '，新建 ' + accountCount + ' 个账户';
     if (errors.length > 0) msg += '，' + errors.length + ' 条错误';
     showToast(msg);
+    
+    // Debug: log date conversions
+    console.log('日期转换详情:', debugDates);
 
     if (errors.length > 0) {
       console.log('CSV 导入错误：', errors);

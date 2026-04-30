@@ -5,6 +5,7 @@ import { showToast, showModal } from './components.js';
 
 let chartInstance = null;
 let isSaving = false;
+let selectedYear = new Date().getFullYear(); // Default to current year
 
 export function title() {
   return '账户详情';
@@ -17,11 +18,17 @@ export async function render(params) {
   }
 
   const today = getToday();
-  const startDate = addDays(today, -89);
-  const records = await getRecordHistory(account.id, startDate, today);
+  const currentYear = new Date().getFullYear();
+  
+  // Get all records for this account (no date limit)
+  const allRecords = await getRecordHistory(account.id, '2000-01-01', today);
+  
+  // Filter records by selected year
+  const filteredRecords = allRecords.filter(r => r.date.startsWith(String(selectedYear)));
+  
   const latestBalance = await getLatestBalance(account.id, today);
-  const prevBalance = records.length >= 2
-    ? records[records.length - 2]?.balance
+  const prevBalance = filteredRecords.length >= 2
+    ? filteredRecords[filteredRecords.length - 2]?.balance
     : await getPreviousBalance(account.id, today);
   const change = (latestBalance !== null && prevBalance !== null) ? latestBalance - prevBalance : 0;
 
@@ -30,6 +37,9 @@ export async function render(params) {
   const todayRecord = todayRecords.find(r => r.accountId === account.id);
   const todayValue = todayRecord ? centsToInputValue(todayRecord.balance) : '';
   const todayPlaceholder = latestBalance !== null ? centsToInputValue(latestBalance) : '0.00';
+  
+  // Get unique years from records
+  const availableYears = [...new Set(allRecords.map(r => parseInt(r.date.split('-')[0])))].sort((a, b) => b - a);
 
   return `
     <div class="detail-header">
@@ -60,21 +70,37 @@ export async function render(params) {
     </div>
 
     <div class="chart-container">
-      <div class="chart-title">近 90 天余额走势</div>
+      <div class="chart-title">余额走势</div>
       <div class="chart-wrapper">
         <canvas id="detail-chart"></canvas>
       </div>
     </div>
 
-    <div class="section-header">历史记录</div>
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--spacing-md);">
+      <div class="section-header" style="padding: 0; margin: 0;">历史记录</div>
+      ${availableYears.length > 1 ? `
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-text-secondary);">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <select id="year-filter" class="form-select" style="padding: 6px 12px; border: 1px solid var(--color-separator); border-radius: 6px; font-size: 13px;">
+            ${availableYears.map(year => `<option value="${year}" ${year === selectedYear ? 'selected' : ''}>${year}年</option>`).join('')}
+          </select>
+        </div>
+      ` : ''}
+    </div>
+    
     <div class="list-group">
-      ${records.length === 0 ? `
+      ${filteredRecords.length === 0 ? `
         <div class="list-item">
           <div class="list-item-content">
-            <div class="list-item-title text-secondary">暂无记录</div>
+            <div class="list-item-title text-secondary">${selectedYear}年暂无记录</div>
           </div>
         </div>
-      ` : records.slice().reverse().map((r, i, arr) => {
+      ` : filteredRecords.slice().reverse().map((r, i, arr) => {
         const prev = arr[i + 1];
         const delta = prev ? r.balance - prev.balance : 0;
         return `
@@ -102,6 +128,8 @@ export async function render(params) {
 export async function mount(params) {
   const account = await getAccount(params.id);
   if (!account) return;
+  
+  const accountId = params.id;
 
   // Load icon asynchronously
   const iconContainer = document.getElementById('detail-icon');
@@ -190,6 +218,60 @@ export async function mount(params) {
     });
   }
 
+  // Bind year filter
+  const yearFilter = document.getElementById('year-filter');
+  if (yearFilter) {
+    yearFilter.addEventListener('change', async (e) => {
+      selectedYear = parseInt(e.target.value);
+      // Refresh the view
+      const today = getToday();
+      const allRecords = await getRecordHistory(accountId, '2000-01-01', today);
+      const filteredRecords = allRecords.filter(r => r.date.startsWith(String(selectedYear)));
+      
+      // Update history list
+      const historyContainer = document.querySelector('.list-group');
+      if (historyContainer) {
+        if (filteredRecords.length === 0) {
+          historyContainer.innerHTML = `
+            <div class="list-item">
+              <div class="list-item-content">
+                <div class="list-item-title text-secondary">${selectedYear}年暂无记录</div>
+              </div>
+            </div>
+          `;
+        } else {
+          historyContainer.innerHTML = filteredRecords.slice().reverse().map((r, i, arr) => {
+            const prev = arr[i + 1];
+            const delta = prev ? r.balance - prev.balance : 0;
+            return `
+              <div class="list-item">
+                <div class="list-item-content">
+                  <div class="list-item-title">${formatDateShort(r.date)}</div>
+                  ${r.note ? `<div class="list-item-subtitle">${r.note}</div>` : ''}
+                </div>
+                <div class="list-item-right">
+                  <div class="list-item-amount">${formatCurrency(r.balance)}</div>
+                  ${delta !== 0 ? `
+                    <div class="list-item-change ${delta > 0 ? 'text-success' : 'text-danger'}">
+                      ${formatChange(delta)}
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+      
+      // Update chart
+      if (filteredRecords.length >= 2 && chartInstance) {
+        chartInstance.data.labels = filteredRecords.map(r => formatDateShort(r.date));
+        chartInstance.data.datasets[0].data = filteredRecords.map(r => r.balance / 100);
+        chartInstance.update();
+      }
+    });
+  }
+
   // Bind save button
   const saveBtn = document.getElementById('save-balance-btn');
   const input = document.getElementById('balance-adjustment-input');
@@ -228,8 +310,7 @@ export async function mount(params) {
         
         // Refresh the view
         const today = getToday();
-        const startDate = addDays(today, -89);
-        const records = await getRecordHistory(account.id, startDate, today);
+        const allRecords = await getRecordHistory(account.id, '2000-01-01', today);
         const latestBalance = await getLatestBalance(account.id, today);
         const prevBalance = await getPreviousBalance(account.id, today);
         const change = (latestBalance !== null && prevBalance !== null) ? latestBalance - prevBalance : 0;
@@ -252,16 +333,16 @@ export async function mount(params) {
         input.dataset.original = centsToInputValue(cents);
 
         // Refresh chart
-        if (records.length >= 2 && chartInstance) {
-          chartInstance.data.labels = records.map(r => formatDateShort(r.date));
-          chartInstance.data.datasets[0].data = records.map(r => r.balance / 100);
+        if (allRecords.length >= 2 && chartInstance) {
+          chartInstance.data.labels = allRecords.map(r => formatDateShort(r.date));
+          chartInstance.data.datasets[0].data = allRecords.map(r => r.balance / 100);
           chartInstance.update();
         }
 
         // Refresh history list
         const historyContainer = document.querySelector('.list-group');
-        if (historyContainer && records.length > 0) {
-          historyContainer.innerHTML = records.slice().reverse().map((r, i, arr) => {
+        if (historyContainer && allRecords.length > 0) {
+          historyContainer.innerHTML = allRecords.slice().reverse().map((r, i, arr) => {
             const prev = arr[i + 1];
             const delta = prev ? r.balance - prev.balance : 0;
             return `
@@ -303,10 +384,9 @@ export async function mount(params) {
   }
 
   const today = getToday();
-  const startDate = addDays(today, -89);
-  const records = await getRecordHistory(account.id, startDate, today);
+  const allRecords = await getRecordHistory(account.id, '2000-01-01', today);
 
-  if (records.length < 2) return;
+  if (allRecords.length < 2) return;
 
   const canvas = document.getElementById('detail-chart');
   if (!canvas || typeof Chart === 'undefined') return;
@@ -314,14 +394,14 @@ export async function mount(params) {
   chartInstance = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: records.map(r => formatDateShort(r.date)),
+      labels: allRecords.map(r => formatDateShort(r.date)),
       datasets: [{
-        data: records.map(r => r.balance / 100),
+        data: allRecords.map(r => r.balance / 100),
         borderColor: account.color || '#007AFF',
         backgroundColor: (account.color || '#007AFF') + '20',
         fill: true,
         tension: 0.3,
-        pointRadius: records.length > 30 ? 0 : 3,
+        pointRadius: allRecords.length > 30 ? 0 : 3,
         pointHoverRadius: 5,
         borderWidth: 2
       }]
@@ -371,4 +451,6 @@ export function unmount() {
     chartInstance.destroy();
     chartInstance = null;
   }
+  // Reset selected year to current year
+  selectedYear = new Date().getFullYear();
 }

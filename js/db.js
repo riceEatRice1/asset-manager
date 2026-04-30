@@ -88,9 +88,11 @@ export async function reorderAccounts(orderedIds) {
 // ========== Record Operations ==========
 
 export async function upsertRecord(accountId, date, balanceCents, note = '') {
+  // Find existing record by accountId and date
   const existing = await db.records
-    .where('[accountId+date]')
-    .equals([accountId, date])
+    .where('accountId')
+    .equals(accountId)
+    .filter(record => record.date === date)
     .first();
 
   const now = Date.now();
@@ -118,18 +120,22 @@ export async function getRecordsForDate(date) {
 }
 
 export async function getRecordHistory(accountId, startDate, endDate) {
+  // Query by accountId first, then filter by date range
   return db.records
-    .where('[accountId+date]')
-    .between([accountId, startDate], [accountId, endDate], true, true)
-    .toArray();
+    .where('accountId')
+    .equals(accountId)
+    .filter(record => record.date >= startDate && record.date <= endDate)
+    .sortBy('date');
 }
 
 // Get the latest balance for an account on or before a given date
 export async function getLatestBalance(accountId, date) {
   const record = await db.records
-    .where('[accountId+date]')
-    .between([accountId, Dexie.minKey], [accountId, date], true, true)
-    .last();
+    .where('accountId')
+    .equals(accountId)
+    .filter(record => record.date <= date)
+    .sortBy('date')
+    .then(records => records.length > 0 ? records[records.length - 1] : null);
   return record ? record.balance : null;
 }
 
@@ -141,9 +147,11 @@ export async function getLatestRecordPerAccount() {
 
   for (const account of accounts) {
     const record = await db.records
-      .where('[accountId+date]')
-      .between([account.id, Dexie.minKey], [account.id, today], true, true)
-      .last();
+      .where('accountId')
+      .equals(account.id)
+      .filter(record => record.date <= today)
+      .sortBy('date')
+      .then(records => records.length > 0 ? records[records.length - 1] : null);
 
     result.push({
       account,
@@ -159,18 +167,22 @@ export async function getLatestRecordPerAccount() {
 export async function getPreviousBalance(accountId, date) {
   // Get the record with the largest date strictly less than the given date
   const record = await db.records
-    .where('[accountId+date]')
-    .between([accountId, Dexie.minKey], [accountId, date], true, false)
-    .last();
+    .where('accountId')
+    .equals(accountId)
+    .filter(record => record.date < date)
+    .sortBy('date')
+    .then(records => records.length > 0 ? records[records.length - 1] : null);
   return record ? record.balance : null;
 }
 
 // Get the latest record (full record) for an account on or before a given date
 export async function getLatestRecordBeforeDate(accountId, date) {
   const record = await db.records
-    .where('[accountId+date]')
-    .between([accountId, Dexie.minKey], [accountId, date], true, true)
-    .last();
+    .where('accountId')
+    .equals(accountId)
+    .filter(record => record.date <= date)
+    .sortBy('date')
+    .then(records => records.length > 0 ? records[records.length - 1] : null);
   return record ? { balance: record.balance, date: record.date } : null;
 }
 
