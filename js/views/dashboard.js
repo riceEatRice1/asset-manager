@@ -254,10 +254,23 @@ function bindSwipeEvents() {
     var currentX = 0;
     var isDragging = false;
     var isOpened = false;
+    var longPressTimer = null;
+    var isLongPress = false;
+    var longPressThreshold = 300; // 300ms long press
 
     row.addEventListener('touchstart', function(e) {
       startX = e.touches[0].clientX;
       isDragging = true;
+      isLongPress = false;
+      
+      // Start long press timer
+      longPressTimer = setTimeout(function() {
+        isLongPress = true;
+        // Provide haptic feedback if available
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+      }, longPressThreshold);
       
       // Close other swiped rows - get fresh list
       var currentRows = container.querySelectorAll('.account-row');
@@ -270,6 +283,18 @@ function bindSwipeEvents() {
 
     row.addEventListener('touchmove', function(e) {
       if (!isDragging) return;
+      
+      // If moved significantly before long press, cancel long press
+      currentX = e.touches[0].clientX;
+      var diffX = Math.abs(startX - currentX);
+      if (diffX > 10 && !isLongPress) {
+        clearTimeout(longPressTimer);
+        return;
+      }
+      
+      // Only allow swipe after long press
+      if (!isLongPress) return;
+      
       currentX = e.touches[0].clientX;
       var diff = startX - currentX;
       
@@ -285,8 +310,24 @@ function bindSwipeEvents() {
     });
 
     row.addEventListener('touchend', function(e) {
+      // Clear long press timer
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      
       if (!isDragging) return;
       isDragging = false;
+      
+      // If not long press, just reset
+      if (!isLongPress) {
+        var swipeContent = row.querySelector('.swipe-content');
+        if (swipeContent) {
+          swipeContent.style.transition = 'transform 0.3s ease';
+          swipeContent.style.transform = 'translateX(0)';
+        }
+        return;
+      }
       
       var diff = startX - currentX;
       var swipeContent = row.querySelector('.swipe-content');
