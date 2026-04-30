@@ -253,7 +253,34 @@ async function renderCharts(firstDate) {
   if (activeWithBalance.length > 0) {
     const compLabels = activeWithBalance.map(d => d.account.name);
     const compData = activeWithBalance.map(d => d.balance / 100);
-    const compColors = activeWithBalance.map(d => d.account.color || '#8E8E93');
+    
+    // Harmonious blue-tone color palette with subtle variations
+    // All colors are blue-based but distinguishable from each other
+    const blueToneColors = [
+      '#007AFF', // 经典蓝
+      '#32ADE6', // 天蓝
+      '#5AC8FA', // 浅蓝
+      '#00C7BE', // 青蓝
+      '#64D2FF', // 亮蓝
+      '#0055D4', // 深蓝
+      '#4A90E2', // 钢蓝
+      '#7BB3E8', // 柔蓝
+      '#87CEEB', // 天空蓝
+      '#4682B4', // 海军蓝
+      '#5F9EA0', // 蓝绿
+      '#6BA3D6'  // 淡蓝
+    ];
+    
+    // Generate colors based on account name (not type)
+    // This ensures each unique account name gets a unique color
+    const compColors = activeWithBalance.map((d, index) => {
+      // Use account name to generate consistent color
+      const nameHash = d.account.name.split('').reduce((hash, char) => {
+        return char.charCodeAt(0) + ((hash << 5) - hash);
+      }, 0);
+      const colorIndex = Math.abs(nameHash) % blueToneColors.length;
+      return blueToneColors[colorIndex];
+    });
 
     const compCanvas = document.getElementById('composition-chart');
     if (compCanvas) {
