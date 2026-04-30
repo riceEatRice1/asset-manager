@@ -48,6 +48,13 @@ async function refreshView() {
           </div>
           <span class="list-item-chevron">›</span>
         </div>
+        <div class="list-item" id="clear-cache-btn">
+          <div class="list-item-content">
+            <div class="list-item-title">清除缓存</div>
+            <div class="list-item-subtitle">清除 Service Worker 缓存并重新加载</div>
+          </div>
+          <span class="list-item-chevron">›</span>
+        </div>
       </div>
 
       <input type="file" id="import-file-input" accept=".csv" style="display:none;">
@@ -105,6 +112,13 @@ async function refreshView() {
         <div class="list-item-content">
           <div class="list-item-title">导入数据 (CSV)</div>
           <div class="list-item-subtitle">从导出的 CSV 文件恢复</div>
+        </div>
+        <span class="list-item-chevron">›</span>
+      </div>
+      <div class="list-item" id="clear-cache-btn">
+        <div class="list-item-content">
+          <div class="list-item-title">清除缓存</div>
+          <div class="list-item-subtitle">清除 Service Worker 缓存并重新加载</div>
         </div>
         <span class="list-item-chevron">›</span>
       </div>
@@ -316,6 +330,9 @@ function bindEvents() {
   });
 
   document.getElementById('import-file-input')?.addEventListener('change', importCSV);
+
+  // Clear cache
+  document.getElementById('clear-cache-btn')?.addEventListener('click', clearAllCache);
 }
 
 async function exportCSV() {
@@ -519,6 +536,45 @@ function sampleData(data, maxPoints) {
 function destroyCharts() {
   charts.forEach(c => c.destroy());
   charts = [];
+}
+
+async function clearAllCache() {
+  showModal({
+    title: '清除缓存',
+    message: '确定要清除所有缓存吗？\n\n这将删除 Service Worker 缓存并重新加载页面，\n确保使用最新的代码版本。',
+    confirmText: '清除',
+    cancelText: '取消',
+    danger: true,
+    onConfirm: async () => {
+      try {
+        // Unregister Service Worker
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const registration of registrations) {
+            await registration.unregister();
+          }
+        }
+
+        // Clear all caches
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          await Promise.all(
+            cacheNames.map(cacheName => caches.delete(cacheName))
+          );
+        }
+
+        showToast('缓存已清除，正在重新加载...');
+        
+        // Reload page after a short delay
+        setTimeout(() => {
+          window.location.reload(true);
+        }, 500);
+      } catch (error) {
+        console.error('Failed to clear cache:', error);
+        showToast('清除缓存失败');
+      }
+    }
+  });
 }
 
 export function unmount() {
